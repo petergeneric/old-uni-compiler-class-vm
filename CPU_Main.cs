@@ -1,234 +1,82 @@
 using System;
 using System.Collections;
-using System.Text;
+
+// Copyright (c) 2006, Peter Wright <peter@peterphi.com>
+// All rights reserved.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+// INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+// FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+// AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+// OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+// THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace TargetVM
 {
-
+    /// <summary>A wrapper around core CPU functionality that allows arbitrary instructions to be executed</summary>
     class Decoder
     {
+        /// <summary>The CPU core</summary>
         public Core vm;
+
+        /// <summary>The current instruction</summary>
         public CpuInstruction op;
 
+        /// <summary>The number of instructions that have been executed by tick</summary>
+        public long executedInstructions = 0;
+
+        /// <summary>Allows calling programs to determine if the CPU has halted</summary>
+        public bool halted
+        {
+            get
+            {
+                return vm.halted;
+            }
+        }
+
+        #region Monitor flags
+        /// <summary>If set to true (and DOBEEPS is defined), will beep when the monitor appears</summary>
         public bool monitorBeep = true;
+        /// <summary>If set to true, the monitor will appear after the next instruction fetch</summary>
         public bool debug = true;
-        public bool halted = false;
+        /// <summary>Should the monitor be called after execution of a NOOP?</summary>
         public bool noopBreak = true;
+        /// <summary>If set to true (and DOBEEPS is defined), will beep when a NOOP is executed</summary>
         public bool noopBeep = false;
+        /// <summary>Should the monitor be called after a HALT instruction?</summary>
         public bool haltBreak = true;
+        /// <summary>If set to true, automatically prints a decode of the current instruction when the monitor appears</summary>
+        public bool autoDecode = true;
+
+        /// <summary>Set to true when any IO operation is performed. Set to false when the monitor runs.</summary>
+        public bool ioSinceMonitor = false;
+
+        /// <summary>If != -1, the monitor will not be displayed until we are about to execute the instruction at this address</summary>
         public int addrBreak = -1;
+        /// <summary>If nonzero, the monitor will not be displayed until the monitor has been requested this number of times</summary>
         public int monitorSkipInstructions = 0;
+        #endregion
 
         public Decoder(Core vm)
         {
             this.vm = vm;
         }
 
-        public void monitor()
-        {
-            if (monitorSkipInstructions != 0)
-            {
-                if (--monitorSkipInstructions > 0)
-                {
-                    return; // Do not display the monitor yet
-                }
-            }
-            else if (addrBreak != -1) // If we have been instructed to break at a specific address:
-            {
-                if (vm.PC - 2 != addrBreak)
-                {
-                    return;
-                }
-                else
-                {
-                    addrBreak = -1;
-                }
-            }
-
-            string cmd;
-            string[] cmds;
-            //if (monitorBeep) System.Media.SystemSounds.Beep.Play();
-
-            Console.Write("\n");
-
-            while (true)
-            {
-
-                Console.Write("[{0}] Monitor>", (vm.PC - 2));
-                cmd = Console.ReadLine().Trim();
-                cmds = cmd.Split(new char[] {' '});
-                
-                switch (cmds[0].ToLower())
-                {
-                    case null: case "": case "c": case "continue":
-                        return;
-                    case "next": case "n":
-                        debug = true;
-                        return;
-
-                    case "r": case "run":
-                        debug = false;
-                        return;
-
-                    case "k": case "skip": // Skip n executions:
-                        monitorSkipInstructions = int.Parse(cmds[1]);
-                        Console.WriteLine("Skipping monitor for next {0} instruction(s).", monitorSkipInstructions);
-                        return;
-
-                    case "b": case "break": // Break at a specific address
-                        addrBreak = ushort.Parse(cmds[1]);
-                        Console.WriteLine("Setting breakpoint at address {0}.", addrBreak);
-                        return;
-
-                    case "s": case "stop": case "exit": case "quit": case "q": // halt execution and terminate
-                        Console.WriteLine("Target Monitor: goodbye.");
-                        System.Environment.Exit(0);
-                        return;
-
-                    case "hb":
-                    case "haltbreak": // examines / sets haltbreak
-                        Console.WriteLine("haltBreak={0}", haltBreak);
-
-                        if (cmds.Length == 2)
-                        {
-                            haltBreak = parseBool(cmds[1]);
-                            Console.WriteLine("haltBreak={0}\tCHANGED", haltBreak);
-                        }
-                        break;
-
-                    case "nb": case "noopbreak": // examines / sets noopBreak
-                        Console.WriteLine("noopBreak={0}", noopBreak);
-
-                        if (cmds.Length == 2)
-                        {
-                            noopBreak = parseBool(cmds[1]);
-                            Console.WriteLine("noopBreak={0}\tCHANGED", noopBreak);
-                        }
-                        break;
-
-                    case "j": case "jump":
-
-
-                        if (cmds.Length == 2)
-                        {
-                            vm.PC = ushort.Parse(cmds[1]);
-                            Console.WriteLine("Jumping to {0}", vm.PC);
-                            this.op = vm.getNextInstruction(); // Decode the instruction and execute it instead
-                        }
-                        break;
-
-                    case "d": case "decode":
-                        for (int i = 1; i < cmds.Length; i++)
-                        {
-                            ushort addr = ushort.Parse(cmds[i]);
-                            CpuInstruction memop = new CpuInstruction();
-                            memop[0] = vm.memGetWord(addr);
-                            memop[1] = vm.memGetWord(addr+1);
-                            Console.WriteLine("{0}:\t{1}", addr, memop.ToString());
-                        }
-
-                        if (cmds.Length == 1) {
-                            Console.WriteLine("{0}\t{1}", (vm.PC - 2), op.ToString());
-                        }
-
-                        break;
-                    case "i": case "inspect":
-                        for (int i = 1; i < cmds.Length; i++)
-                        {
-                            int addr = Math.Abs(int.Parse(cmds[i]));
-
-                            if (cmds[i].StartsWith("-"))
-                            {
-                                Console.WriteLine("{0}:\t0x{1:X4} == {1}s", addr, (short) vm.memGetWord(addr));
-                            }
-                            else
-                            {
-                                Console.WriteLine("{0}:\t0x{1:X4} == {1}u", addr, vm.memGetWord(addr));
-                            }
-                            
-                        }
-                        break;
-                    case "p": case "peek":
-                        int pitems = 1;
-                        bool peekSigned = false;
-                        if (cmds.Length == 2)
-                        {
-                            pitems = Math.Abs(int.Parse(cmds[1]));
-                            peekSigned = cmds[1].StartsWith("-");
-                        }
-
-
-                        for (int offset = 1; offset <= pitems; offset++)
-                        {
-                            ushort w = vm.memGetWord(vm.SP - offset);
-                            if (peekSigned)
-                            {
-                                Console.WriteLine("{0}:\t0x{1:X4} == {1}s", vm.SP - offset, (short) w);
-                            }
-                            else
-                            {
-                                Console.WriteLine("{0}:\t0x{1:X4} == {1}u", vm.SP - offset, w);
-                            }
-                        }
-
-                        break;
-
-                    case "g": case "registers": case "register":
-                        Hashtable core = vm.coreDump();
-                        foreach (string key in core.Keys)
-                        {
-                            Console.WriteLine("{0}\t= {1}", key, core[key]);
-                        }
-
-                        break;
-
-                    case "?": case "help":
-                        Console.WriteLine("TARGET MONITOR");
-                        Console.WriteLine("Commands that take -n consider it to be a signed access of n.");
-                        Console.WriteLine("d {n}      - Displays a rough decode of the instruction[s] at n.");
-                        Console.WriteLine("             Current instruction displayed if none are specified");
-                        Console.WriteLine("             (decode)");
-                        Console.WriteLine("p [-][n]   - Displays the top n items on the stack. (peek)");
-                        Console.WriteLine("i [-]{n}   - Displays values stored in memory location[s] n.");
-                        Console.WriteLine("j addr     - Branches immediately to ADDR. (jump)");
-                        Console.WriteLine("q          - Terminates the VM immediately");
-                        Console.WriteLine("c          - Resumes execution; monitor state unchanged");
-                        Console.WriteLine("             (continue, <ENTER>)");
-                        Console.WriteLine("r          - Resumes execution; monitor disabled");
-                        Console.WriteLine("n          - Resumes execution; monitor enabled");
-                        Console.WriteLine("k n        - Hides monitor for another n operations. (skip)");
-                        Console.WriteLine("b n        - Hides monitor until operation at n. (break)");
-                        Console.WriteLine("g [-]      - Displays all registers (registers)");
-                        
-                        break;
-
-                    default:
-                        Console.WriteLine("Monitor: Unknown command");
-                        break;
-                }
-            }
-        }
-
-        public bool parseBool(string value)
-        {
-            switch (value.ToLower())
-            {
-                case "no": case "false": case "f": case "0": return false;
-                case "yes": case "true": case "t": case "1": return true;
-                default:
-                    return false;
-            }
-        }
-
-
         /// <summary>Decodes an instruction</summary>
         public void tick()
         {
-            if (halted)
-            {
-                return;
-            }
-
             op = vm.getNextInstruction();
 
             if (debug)
@@ -236,11 +84,18 @@ namespace TargetVM
                 monitor();
             }
 
+            ++executedInstructions;
+
             switch ((OpCode)op.opcode)
             {
-                case OpCode.NOOP: // Let the CPU decide what to do with a noop
-                    //if (noopBeep) System.Media.SystemSounds.Beep.Play();
-                    
+                case OpCode.NOOP: // "Do Nothing"
+                    #region beep if possible & necessary
+#if DOBEEP
+                    if (noopBeep) System.Media.SystemSounds.Beep.Play();
+#endif
+                    #endregion
+
+
                     // Allow the monitor to reassert itself after the next noop
                     if (noopBreak)
                     {
@@ -257,6 +112,11 @@ namespace TargetVM
                     vm.div(); break;
                 case OpCode.MUL:
                     vm.mul(); break;
+                case OpCode.DREM:
+                    vm.mod(); break;
+                case OpCode.INCR: // Increment the top of the stack by operand
+                    vm.incr((short)op.operand);
+                    break;
 
                 // LOGICAL OPERATIONS //
                 case OpCode.LOR:
@@ -346,10 +206,18 @@ namespace TargetVM
                     }
                     break;
                 case OpCode.BVS: // unknown
-                    // if PSR(V) != 0, branch to m
+                    if (vm.psrV)
+                    {
+                        vm.psrV = false; // Clear the flag
+                        vm.branch(op.getOffsetOperand());
+                    }
                     break;
                 case OpCode.BES: // unknown
-                    // if PSR(E) != 0, branch to m
+                    if (vm.psrE)
+                    {
+                        vm.psrE = false; // Clear the flag
+                        vm.branch(op.getOffsetOperand());
+                    }
                     break;
 
                 // SUBROUTINES //
@@ -357,47 +225,50 @@ namespace TargetVM
                     vm.MP = vm.SP;
                     vm.SP += op.operand;
                     break;
-                case OpCode.CALL: // Store FP and PC on the MP stack; FP=MP; PC=m
-                    vm.memSetWord((ushort)(vm.MP + 1), vm.FP);
-                    vm.memSetWord((ushort) (vm.MP + 2), vm.PC);
+
+                case OpCode.CALL: // Store FP and PC to the current frame; FP=MP; PC=m
+                    vm.memory[vm.MP + 1] = vm.FP;
+                    vm.memory[vm.MP + 2] = vm.PC;
                     vm.FP = vm.MP;
-                    vm.branch(op.getOffsetOperand());
+                    vm.PC = op.getOffsetOperand();
                     break;
+
                 case OpCode.EXIT: // Restore FP and PC from the MP stack
                     vm.SP = vm.FP;
-                    vm.FP = vm.memGetWord(vm.SP + 1);
-                    vm.PC = vm.memGetWord(vm.SP + 2);
+                    vm.FP = vm.memory[vm.SP + 1];
+                    vm.PC = vm.memory[vm.SP + 2]; // jump back to the caller
                     break;
 
                 // LOADING //
                 case OpCode.LOADL: // Load a value (operand)
                     vm.push(op.operand); break;
-                case OpCode.LOADR: // Load a value addressed by a register
-                    vm.push(vm.memGetWord(op.register)); break;
+                case OpCode.LOADR: // Load the value in a register
+                    vm.push(vm.getRegister(op.register)); break;
                 case OpCode.LOAD: // Load the value of the offset operand
-                    vm.push(vm.memGetWord(op.getOffsetOperand())); break;
+                    vm.push(vm.memory[op.getOffsetOperand()]); break;
                 case OpCode.LOADA: // Load the address of the offset operand
                     vm.push(op.getOffsetOperand()); break;
                 case OpCode.LOADI: // Load (operand) words onto the stack, source address on the top of the stack
                     {
                         // Could be more efficiently represented with memCopyWord. This way is more maintainable
                         ushort src = vm.pop(); // get the src address
-                        ushort srcMax = (ushort)(src + (op.operand * sizeof(short)));
+                        ushort srcMax = (ushort)(src + (op.operand));
 
                         for (; src < srcMax; src += 2)
                         {
-                            vm.push(vm.memGetWord(src));
+                            vm.push(vm.memory[src]);
                         }
 
                         break;
                     }
 
                 // STORING //
-                case OpCode.STORER: // Pop, using a register as a destination address
-                    vm.memSetWord(op.register, vm.pop());
+                case OpCode.STORER: // Pop to a register
+                    vm.setRegister(op.register, vm.pop());
                     break;
                 case OpCode.STORE: // Pop, using m as the destination address
-                    vm.memSetWord(op.getOffsetOperand(), vm.pop());
+                    vm.memory[op.getOffsetOperand()] = vm.pop();
+                    //vm.memSetWord(op.getOffsetOperand(), vm.pop());
                     break;
                 case OpCode.STOREI: // Pop (operand) words from the stack
                     {
@@ -405,24 +276,17 @@ namespace TargetVM
                         ushort dest = vm.pop();
                         for (int i = op.operand; i != 0; --i)
                         {
-                            ushort val = vm.pop();
-                            vm.memSetWord(dest, val);
-
-                            dest += sizeof(ushort);
+                            vm.memory[dest++] = vm.pop();
                         }
                         
                         break;
                     }
 
-                case OpCode.INCR: // Increment the top of the stack by operand
-                    vm.push(op.operand);
-                    vm.add();
-                    break;
                 case OpCode.STZ: // Store 0 to memory location m
-                    vm.memSetWord(op.getOffsetOperand(), 0);
+                    vm.memory[op.getOffsetOperand()] = 0;
                     break;
-                case OpCode.INCREG: // Increment register by n words
-                    vm.incRegister(op.register, (ushort)(sizeof(ushort) * op.operand));
+                case OpCode.INCREG: // Increment register by n
+                    vm.incRegister(op.register, op.operand);
                     break;
 
                 case OpCode.MOVE: // Copy n words from (SP-2) to (SP-1)
@@ -439,112 +303,574 @@ namespace TargetVM
                     vm.PSR = op.operand;
                     break;
                 case OpCode.HALT: // Sets the HALT bit of the PSR
-                    halted = true;
-                    Console.WriteLine("\nVM: EXECUTION HALTED");
-
-                    // Run the monitor
-                    if (haltBreak)
-                    {
-                        Console.WriteLine("<ENTERING MONITOR>");
-                        monitor();
-                    }
+                    vm.psrH = true;
                     break;
 
                 // Check instruction:
                 case OpCode.CHECK:
+                    vm.SP -= 2;
+                    short check1 = (short) vm.memory[vm.SP];
+                    short check2 = (short) vm.memory[vm.SP - 1];
+                    short check3 = (short) vm.memory[vm.SP + 1];
+
+                    if (check1 <= check2 && check2 <= check3)
+                    {
+                        vm.psrE = false;
+                    }
+                    else // If the PSR[C] bit is set, halt the CPU
+                    {
+                        vm.psrE = true;
+                        vm.psrH = vm.psrC;
+                    }
+                    
                     throw new NotImplementedException("CHECK instruction is not yet implemented in this virtual machine");
-                    //break;
 
                 // Character reading and writing:
                 case OpCode.CHIN:
-                    ConsoleKeyInfo ki = Console.ReadKey();
-                    vm.push((ushort)ki.KeyChar); // Technically allows unicode
-                    //vm.push((ushort)Console.Read());  
+                    ioSinceMonitor = true;
+                    vm.push((ushort)Console.ReadKey().KeyChar); // Technically allows unicode
                     break;
 
-
-                    ////-------------- NON-STANDARD OPCODES HERE! --------------////
                 case OpCode.CHOUT:
-                    char c = (char) vm.pop();
+                    ioSinceMonitor = true;
+                    char c = (char)vm.pop();
                     Console.Write(c); // Technically allows unicode
                     break;
 
-                case OpCode.INTIN:
+                    ////-------------- NON-STANDARD OPCODES FOLLOW! --------------////
+#if !NOEXTENDEDINSTRUCTIONS
+                case OpCode.INTIN: // Read an integer (simplifies the system routine)
+                    ioSinceMonitor = true;
                     string intinLine = Console.ReadLine();
                     short intin = (short) int.Parse(intinLine);
                     vm.push((ushort)intin);
                     break;
-                
-                case OpCode.INTOUT:
+
+                case OpCode.INTOUT: // Write an integer (simplifies the system routine)
+                    ioSinceMonitor = true;
                     short intout = (short)vm.pop();
                     Console.Write(intout);
                     break;
-
+                case OpCode.BLANK: // Do absolutely nothing (please use for VM debugging only!)
+                    break;
+#endif
                 default:
                     throw new ArgumentOutOfRangeException("Encountered invalid opcode: " + op.opcode);
+            } // end switch
+
+            // If the CPU has been halted:
+            if (vm.halted)
+            {
+                Console.WriteLine("\n>VM: CPU HALTED");
+
+                // Run the monitor
+                if (haltBreak)
+                {
+                    Console.WriteLine("<ENTERING MONITOR>");
+                    monitor();
+                }
+            }
+        } // end tick()
+
+
+        #region Monitor Code
+        /// <summary>A simple debugging console</summary>
+        public void monitor()
+        {
+            if (monitorSkipInstructions != 0)
+            {
+                if (--monitorSkipInstructions > 0)
+                {
+                    return; // Do not display the monitor yet
+                }
+            }
+            else if (addrBreak != -1) // If we have been instructed to break at a specific address:
+            {
+                if (vm.PC - 2 != addrBreak)
+                {
+                    return; // Do not display the monitor yet
+                }
+                else
+                {
+                    addrBreak = -1;
+                }
+            }
+
+            string cmd;
+            string[] cmds;
+#if DOBEEP
+            if (monitorBeep) System.Media.SystemSounds.Beep.Play();
+#endif
+
+            // If the CPU has performed IO since the last execution, ensure we're on a new line
+            if (ioSinceMonitor)
+            {
+                Console.WriteLine();
+                ioSinceMonitor = false;
+            }
+
+            if (autoDecode) // If the user requested it, automatically display the decode of the instruction
+            {
+                Console.WriteLine("\t{1}", (vm.PC - 2), op.ToString());
+
+            }
+            // Keep accepting arguments until we receive a terminal command
+            while (true)
+            {
+                Console.Write("[{0}] Monitor>", (vm.PC - 2));
+                cmd = Console.ReadLine().Trim();
+                cmds = cmd.Split(new char[] { ' ' });
+
+                switch (cmds[0].ToLower())
+                {
+                    case null:
+                    case "":
+                    case "c":
+                    case "continue":
+                        return;
+                    case "next":
+                    case "n":
+                        debug = true;
+                        return;
+
+                    case "r":
+                    case "run":
+                        debug = false;
+                        return;
+
+                    case "k":
+                    case "skip": // Skip n executions:
+                        if (cmds.Length == 2)
+                        {
+                            monitorSkipInstructions = parseAddr(cmds[1]);
+                            Console.WriteLine("Skipping monitor for next {0} instruction(s).", monitorSkipInstructions);
+                            return;
+                        }
+                        else
+                        {
+                            Console.WriteLine("Target Monitor: skip requires an argument. Example: skip 5");
+                            break;
+                        }
+
+                    case "b":
+                    case "break": // Break at a specific address
+                        if (cmds.Length == 2)
+                        {
+                            addrBreak = parseAddr(cmds[1]);
+                            Console.WriteLine("Setting breakpoint at address {0}.", addrBreak);
+                            return;
+                        }
+                        else
+                        {
+                            Console.WriteLine("Target Monitor: break requires an argument. Example: break 210");
+                            break;
+                        }
+
+                    case "s":
+                    case "halt":
+                    case "stop":
+                    case "exit":
+                    case "quit":
+                    case "q": // halt execution and terminate
+                        Console.WriteLine("Target Monitor: goodbye.");
+                        System.Environment.Exit(0);
+                        return;
+                    case "search": // Search for the occurrances of n in memory
+                        if (cmds.Length == 2)
+                        {
+                            ushort val = parseValue(cmds[1]);
+
+                            Console.WriteLine("Searching memory...");
+                            for (int i = vm.memory.Length - 1; i != 0; --i)
+                            {
+                                if (vm.memory[i] == val)
+                                {
+                                    Console.WriteLine("{0}: {1}\t('{2}')", i, val, (char) val);
+                                }
+                            }
+                            Console.WriteLine("Complete.");
+                        }
+                        else
+                        {
+                            Console.WriteLine("Target Monitor: search requires one argument.");
+                        }
+                        break;
+
+                    case "hb":
+                    case "haltbreak": // examines / sets haltbreak
+                        Console.WriteLine("haltBreak={0}", haltBreak);
+
+                        if (cmds.Length == 2)
+                        {
+                            haltBreak = parseBool(cmds[1]);
+                            Console.WriteLine("haltBreak={0}\tCHANGED", haltBreak);
+                        }
+                        break;
+
+                    case "nb":
+                    case "noopbreak": // examines / sets noopBreak
+                        Console.WriteLine("noopBreak={0}", noopBreak);
+
+                        if (cmds.Length == 2)
+                        {
+                            noopBreak = parseBool(cmds[1]);
+                            Console.WriteLine("noopBreak={0}\tCHANGED", noopBreak);
+                        }
+                        break;
+
+                    case "setsp":
+                        vm.SP = parseAddr(cmds[1]);
+                        Console.WriteLine("SP={0}\tCHANGED", vm.SP);
+                        break;
+
+                    case "setfp":
+                        vm.FP = parseAddr(cmds[1]);
+                        Console.WriteLine("FP={0}\tCHANGED", vm.FP);
+                        break;
+
+                    case "setmp":
+                        vm.MP = parseAddr(cmds[1]);
+                        Console.WriteLine("MP={0}\tCHANGED", vm.MP);
+                        break;
+
+                    case "store":
+                        if (cmds.Length == 3)
+                        {
+                            ushort storeAddr = parseAddr(cmds[1]);
+                            ushort storeVal = parseValue(cmds[2]);
+                            vm.memory[storeAddr] = storeVal;
+
+                            Console.WriteLine("{0}:\t{1}", storeAddr, storeVal);
+                        }
+                        else
+                        {
+                            Console.WriteLine("Target Monitor: store takes 2 arguments (address, value)");
+                        }
+                        break;
+                        
+
+                    case "push":
+                        ushort data = parseAddr(cmds[1]); ;
+                        vm.push(data);
+                        Console.WriteLine("Pushed {0} onto the stack.", data);
+                        break;
+
+                    case "pop":
+                        if (vm.SP > 0)
+                        {
+                            Console.WriteLine("Popped {0} from the stack.", vm.pop());
+                        }
+                        else
+                        {
+                            Console.WriteLine("Stack at top of address space. Cannot pop.");
+                        }
+                        break;
+
+                    case "j":
+                    case "jump":
+                        if (cmds.Length == 2)
+                        {
+                            vm.PC = parseAddr(cmds[1]);
+                            Console.WriteLine("Jumping to {0}", vm.PC);
+                            this.op = vm.getNextInstruction(); // Decode the instruction and execute it instead
+                        }
+                        else
+                        {
+                            Console.WriteLine("Target Monitor: jump requires an argument. Example: jump 50");
+                        }
+                        break;
+
+                    case "d":
+                    case "decode":
+                        for (int i = 1; i < cmds.Length; i++)
+                        {
+                            ushort addr = parseAddr(cmds[i]);
+                            CpuInstruction memop = new CpuInstruction();
+                            memop[0] = vm.memory[addr];
+                            memop[1] = vm.memory[addr + 1];
+                            Console.WriteLine("{0}:\t{1}", addr, memop.ToString());
+                        }
+
+                        if (cmds.Length == 1)
+                        {
+                            Console.WriteLine("{0}\t{1}", (vm.PC - 2), op.ToString());
+                        }
+
+                        break;
+                    case "i":
+                    case "inspect":
+                        for (int i = 1; i < cmds.Length; i++)
+                        {
+                            ushort addr = parseAddr(cmds[i]);
+
+                            if (cmds[i].StartsWith("-"))
+                            {
+                                if (addr < vm.memory.Length)
+                                {
+                                    Console.WriteLine("{0}:\t0x{1:X4} == {1}s", addr, (short)vm.memory[addr]);
+                                }
+                                else
+                                {
+                                    Console.WriteLine("{0}:\tOUT OF BOUNDS");
+                                }
+                            }
+                            else
+                            {
+                                if (addr < vm.memory.Length)
+                                {
+                                    Console.WriteLine("{0}:\t0x{1:X4} == {1}u", addr, vm.memory[addr]);
+                                }
+                                else
+                                {
+                                    Console.WriteLine("{0}:\tOUT OF BOUNDS");
+                                }
+                            }
+
+                        }
+                        break;
+                    case "p":
+                    case "peek":
+                        ushort pitems = 1;
+                        bool peekSigned = false;
+                        if (cmds.Length == 2)
+                        {
+                            pitems = parseAddr(cmds[1]);
+                            peekSigned = cmds[1].StartsWith("-");
+                        }
+
+                        // Check we're not about to read out of the memory bounds
+                        if (vm.SP - pitems < 0)
+                        {
+                            Console.WriteLine("Target Monitor: {0} word{1} back from SP ({2}) is an illegal address.", pitems, (pitems != 1 ? "s" : ""), vm.SP);
+                            break;
+                        }
+
+                        for (int offset = 1; offset <= pitems; offset++)
+                        {
+                            ushort w = vm.memory[vm.SP - offset]; // vm.memGetWord(vm.SP - offset);
+                            if (peekSigned)
+                            {
+                                Console.WriteLine("{0}:\t0x{1:X4} == {1}s", vm.SP - offset, (short)w);
+                            }
+                            else
+                            {
+                                Console.WriteLine("{0}:\t0x{1:X4} == {1}u", vm.SP - offset, w);
+                            }
+                        }
+
+                        break;
+
+                    case "g":
+                    case "reg":
+                    case "registers":
+                    case "register":
+                    case "calc": // make it easier for the user to think about using reg to calculate values
+                        if (cmds.Length == 1)
+                        {
+                            Hashtable core = vm.coreDump();
+                            foreach (string key in core.Keys)
+                            {
+                                Console.WriteLine("{0}\t= {1}", key, core[key]);
+                            }
+                        }
+                        else
+                        {
+                            for (int i = 1; i < cmds.Length; i++)
+                            {
+                                ushort val = parseAddr(cmds[i]);
+                                Console.WriteLine("{0} = {1}", cmds[i].ToUpper(), val);
+                            }
+                        }
+
+                        break;
+
+                    case "?":
+                    case "help":
+                        Console.WriteLine("TARGET MONITOR");
+                        Console.WriteLine("Copyright (c) 2006, Peter Wright <peter@peterphi.com>");
+                        Console.WriteLine("Commands that take -n consider it to be a signed access of n.");
+                        Console.WriteLine("Commands that take n can understand 'sp', '0,[fp,1]', etc.");
+                        Console.WriteLine("d {n}      - Displays a rough decode of the instruction[s] at n.");
+                        Console.WriteLine("             Current instruction displayed if none are specified");
+                        Console.WriteLine("             (decode)");
+                        Console.WriteLine("p [-][n]   - Displays the top n items on the stack. (peek)");
+                        Console.WriteLine("i [-]{n}   - Displays values stored in memory location[s] n.");
+                        Console.WriteLine("j addr     - Branches immediately to ADDR. (jump)");
+                        Console.WriteLine("q          - Terminates the VM immediately");
+                        Console.WriteLine("c          - Resumes execution; monitor state unchanged");
+                        Console.WriteLine("             (continue, <ENTER>)");
+                        Console.WriteLine("r          - Resumes execution; monitor disabled");
+                        Console.WriteLine("n          - Resumes execution; monitor enabled");
+                        Console.WriteLine("k n        - Hides monitor for another n operations. (skip)");
+                        Console.WriteLine("b n        - Hides monitor until operation at n. (break)");
+                        Console.WriteLine("g          - Displays all registers (registers)");
+                        Console.WriteLine("g {n}      - Displays specific register values");
+                        Console.WriteLine("calc {n}   - Calculates the address of n");
+
+                        break;
+
+                    default:
+                        Console.WriteLine("Monitor: Unknown command");
+                        break;
+                }
             }
         }
-    }
 
-    public enum OpCode
-    {
-            NOOP = 0,
-            LOADL = 1,
-            LOADR = 2,
-            LOAD = 3,
-            LOADA = 4,
-            LOADI = 5,
+        public ushort parseValue(string value)
+        {
+            if (char.IsDigit(value[0]))
+            {
+                return (ushort)int.Parse(value);
+            }
+            else if (value.Length == 3 && value[0] == '\'' && value[2] == '\'')
+            {
+                return (ushort)value[1];
+            }
+            else
+            {
+                Console.WriteLine("Target Monitor: Invalid value \"{0}\".", value);
+                return 0;
+            }
+        }
 
-            STORER = 6,
-            STORE = 7,
-            STOREI = 8,
 
-            INCR = 9,
-            STZ = 10,
-            INCREG = 11,
+        public bool parseBool(string value)
+        {
+            switch (value.ToLower())
+            {
+                case "no":
+                case "false":
+                case "f":
+                case "0": return false;
+                case "yes":
+                case "true":
+                case "t":
+                case "1": return true;
+                default:
+                    return false;
+            }
+        }
 
-            MOVE = 12,
+        /// <summary>Smart address parser</summary>
+        /// <param name="value">A string representing an address (or a simple address calculation)</param>
+        /// <returns>The address associated with that value, or 0 if the string could not be processed</returns>
+        public ushort parseAddr(string value)
+        {
+            // If the address starts with a -, eat it
+            if (value.StartsWith("-"))
+            {
+                value = value.Substring(1);
+            }
 
-            SLL = 13,
-            SRL = 14,
-            ADD = 15,
-            SUB = 16,
-            MUL = 17,
-            DVD = 18,
-            DREM = 19,
-            LAND = 20,
-            LOR = 21,
-            INV = 22,
-            NEG = 23,
+            // expect address,register:
+            if (value.StartsWith("[") && value.Contains(",")) // expect [address,indirections]
+            {
+                string[] addrReg = value.Replace("[", "").Replace("]", "").Split(new char[] { ',' }, 2);
+                ushort regOffset = parseAddr(addrReg[0]);
+                ushort indirections = parseAddr(addrReg[1]);
 
-            CLT = 24,
-            CLE = 25,
-            CEQ = 26,
-            CNE = 27,
+                // Indirect regOffset by indirections
+                for (; indirections != 0; --indirections)
+                {
+                    regOffset = vm.memory[regOffset];
+                }
 
-            BRN = 28,
-            BIDX = 29,
-            BZE = 30,
-            BNZ = 31,
-            BNG = 32,
-            BPZ = 33,
-            BVS = 34,
-            BES = 35,
+                return regOffset;
+            }
+            else if (value.Contains(",") && value.Contains("[")) // expect address,[reg,indirections]
+            {
+                string[] addrReg = value.Split(new char[] { ',' }, 2);
+                ushort baseAddr = parseAddr(addrReg[0]);
+                ushort regOffset = parseAddr(addrReg[1]);
 
-            MARK = 36,
-            CALL = 37,
-            EXIT = 38,
+                return (ushort)(baseAddr + regOffset);
+            }
+            else if (value.Contains(",") && char.IsDigit(value[0])) // Technically this allows for 10,10,SP.
+            {
+                string[] addrReg = value.Split(new char[] {','}, 2);
+                ushort baseAddr = ushort.Parse(addrReg[0]);
+                ushort regOffset = parseAddr(addrReg[1]);
 
-            SETSP = 39,
-            SETPSR = 40,
-            HALT = 41,
+                return (ushort)(baseAddr + regOffset);
+            }
+            else if (value.Contains("+")) // Allow VERY BASIC addition
+            {
+                string[] addrReg = value.Split(new char[] { '+' }, 2);
+                ushort baseAddr = parseAddr(addrReg[0]);
+                ushort posOffset = parseAddr(addrReg[1]);
 
-            CHECK = 42,
+                return (ushort)(baseAddr + posOffset);
+            }
+            else if (value.Contains("-")) // Allow VERY BASIC subtraction
+            {
+                string[] addrReg = value.Split(new char[] { '-' });
+                ushort baseAddr = parseAddr(addrReg[0]);
 
-            CHIN = 43,
-            CHOUT = 44,
+                for (int i = 1; i < addrReg.Length; i++)
+                {
+                    ushort negOffset = parseAddr(addrReg[1]);
+                    baseAddr = (ushort)(baseAddr - negOffset);
+                }
 
-            INTIN = 45,
-            INTOUT = 46
+                return baseAddr;
+            }
+
+            if (value.Length > 0)
+            {
+                switch (value.ToLower())
+                {
+                    case "sp":
+                        return vm.SP;
+                    case "bp":
+                        return vm.BP;
+                    case "mp":
+                        return vm.MP;
+                    case "fp":
+                        return vm.FP;
+                    case "pc":
+                        return vm.PC;
+
+                    // SPECIAL CASE: gives the currently executing instruction
+                    case "instr":
+                    case "pc--":
+                    case "pc-=2":
+                    case "here":
+                        if (vm.PC >= 2)
+                        {
+                            return (ushort)(vm.PC - 2);
+                        }
+                        else
+                        {
+                            return 0;
+                        }
+                    default:
+                        if (char.IsDigit(value[0]))
+                        {
+                            try
+                            {
+                                return (ushort)ushort.Parse(value);
+                            }
+                            catch (Exception)
+                            {
+                                Console.WriteLine("[Cannot parse address {0}]", value);
+                                return 0;
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine("[Cannot parse address {0}]", value);
+                            return 0;
+                        }
+                }
+            }
+            else
+            {
+                Console.WriteLine("[Cannot parse address {0}]", value);
+                
+				return 0;
+            }
+        }
+
+        #endregion
     }
 }

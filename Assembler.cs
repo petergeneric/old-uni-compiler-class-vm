@@ -1,21 +1,52 @@
+#define MONO
 using System;
-using System.Text;
 using System.Collections;
 using System.IO;
+
+// Copyright (c) 2006, Peter Wright <peter@peterphi.com>
+// All rights reserved.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+//     * Redistributions of source code must retain the above copyright
+//       notice, this list of conditions and the following disclaimer.
+//     * Redistributions in binary form must reproduce the above copyright
+//       notice, this list of conditions and the following disclaimer in the
+//       documentation and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+// INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+// FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+// AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+// OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+// THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace TargetVM
 {
     class Assembler
     {
         private StreamReader file;
-
-        Core assemblyCore = new Core();
+        private ushort[] memory = new ushort[ushort.MaxValue + 1]; // The memory to assemble the file to (allocate 1 extra space to allow for memory[ushort.MaxValue]
 
         /// <summary>Assembles a number of source files; each file may contain instructions at any memory location; they are assembled and loaded into memory in the order given</summary>
         /// <param name="asmFiles">A list of Target assembly files</param>
         public Assembler(params String[] asmFiles)
         {
-            foreach (String asmFile in asmFiles) {
+            foreach (String asmFile in asmFiles)
+            {
+                if (asmFile == null) continue; // Skip null files
+
+                // Skip files that don't exist
+                if (!File.Exists(asmFile))
+                {
+                    Console.WriteLine("> Cannot assemble non-existant file: " + asmFile);
+                    continue;
+                }
+
                 try
                 {
                     Console.WriteLine("> Assembling file " + asmFile);
@@ -50,7 +81,7 @@ namespace TargetVM
 
         public ushort[] getAssembled()
         {
-            return assemblyCore.memory;
+            return memory;
         }
 
         public string[] split(String str, char delimeter, int count)
@@ -95,16 +126,17 @@ namespace TargetVM
 #else
             string[] instr = instruction.Split(new char[] { ' ' }, 3, StringSplitOptions.RemoveEmptyEntries);
 #endif
+
             addr = ushort.Parse(instr[0]);
             opcode = instr[1];
             operand = (instr.Length >= 3) ? instr[2] : null;
 
             CpuInstruction operation = assembleInstruction(addr, opcode, operand);
             Console.WriteLine("{0}:\t{1}", addr, operation.ToString());
-
+            
             // Write the instruction to the assembly core's RAM:
-            assemblyCore.memSetWord(addr, operation[0]);
-            assemblyCore.memSetWord((ushort)(addr + 1), operation[1]);
+            memory[addr] = operation[0];
+            memory[addr + 1] = operation[1];
         }
 
         public CpuInstruction assembleInstruction(ushort addr, String instruction, String operands)
@@ -117,17 +149,23 @@ namespace TargetVM
 
             // If we have any operands, pack them into the instruction:
             {
-                int[] operandValues = parseOperands(operands);
+                ushort[] operandVals = parseOperands(operands);
 
-                operation.setOperandsSmart(operandValues[0], operandValues[2], operandValues[1]);
+                operation.operand = (ushort)operandVals[0];
+                operation.register = (byte)operandVals[1];
+                operation.indirections = (byte)operandVals[2];
             }
 
             return operation;
         }
 
-        public int[] parseOperands(String operands)
+
+        /// <summary>Parses the operands given to an instruction</summary>
+        /// <param name="operands">The operands with NO WHITESPACE ON EITHER SIDE</param>
+        /// <returns>The values for the 3 operands</returns>
+        public ushort[] parseOperands(String operands)
         {
-            int[] buffer = new int[] {int.MaxValue, int.MaxValue, int.MaxValue };
+            ushort[] buffer = new ushort[] {0,0,0};
 
             if (operands == null || operands.Length == 0)
             {
@@ -135,7 +173,7 @@ namespace TargetVM
             }
 
 
-            if (char.IsDigit(operands[0]))
+            if (char.IsDigit(operands[0]) || operands[0] == '-')
             {
 #if MONO
                 string[] operandArray = split(operands, ',', 2);
@@ -143,7 +181,7 @@ namespace TargetVM
                 string[] operandArray = operands.Split(new char[] {','}, 2, StringSplitOptions.RemoveEmptyEntries);
 #endif
                 
-                buffer[0] = ushort.Parse(operandArray[0].Trim());
+                buffer[0] = (ushort) short.Parse(operandArray[0].Trim());
 
                 // If there are further operands, set the operands
                 if (operandArray.Length > 1)
@@ -156,22 +194,33 @@ namespace TargetVM
                 }
             }
 
-            // If the operand contains a comma, it's a register,indirection set
-
+            // If the operand contains a comma, it's a register,value set (either [register, indirections] or register, operand)
             if (operands.IndexOf(",") != -1)
             {
                 // If it starts with a [, strip the square brackets:
-                if (operands.StartsWith("[")) {
+                if (operands.StartsWith("[")) // FORMAT IS [register, indirections]
+                {
                     operands = operands.Replace("[", "").Replace("]", "");
-                }
 #if MONO
                 string[] operandArray = split(operands, ',', 2);
 #else
-                string[] operandArray = operands.Split(new char[] { ',' }, 2, StringSplitOptions.RemoveEmptyEntries);
+                    string[] operandArray = operands.Split(new char[] { ',' }, 2, StringSplitOptions.RemoveEmptyEntries);
 #endif
 
-                buffer[1] = parseRegister(operandArray[0].Trim());
-                buffer[2] = byte.Parse(operandArray[1].Trim());
+                    buffer[1] = parseRegister(operandArray[0].Trim());
+                    buffer[2] = byte.Parse(operandArray[1].Trim());
+                }
+                else // OTHERWISE, FORMAT IS: register, operand
+                {
+#if MONO
+                string[] operandArray = split(operands, ',', 2);
+#else
+                    string[] operandArray = operands.Split(new char[] { ',' }, 2, StringSplitOptions.RemoveEmptyEntries);
+#endif
+
+                    buffer[1] = parseRegister(operandArray[0].Trim()); // the register is defined first
+                    buffer[0] = ushort.Parse(operandArray[1].Trim()); // second comes the operand
+                }
 
                 // We have successfully parsed this operand.
                 return buffer;
@@ -194,8 +243,8 @@ namespace TargetVM
             switch (reg)
             {
                 case "BP": return 0;
-                case "FP": return 1; 
-                case "MP": return 2; 
+                case "FP": return 1;
+                case "MP": return 2;
                 case "SP": return 3;
                 default:
                     throw new ArgumentOutOfRangeException("Unknown register: " + reg);
