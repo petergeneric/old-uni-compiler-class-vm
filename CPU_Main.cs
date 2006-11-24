@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.IO;
 
 // Copyright (c) 2006, Peter Wright <peter@peterphi.com>
 // All rights reserved.
@@ -353,6 +354,10 @@ namespace TargetVM
                     break;
                 case OpCode.BLANK: // Do absolutely nothing (please use for VM debugging only!)
                     break;
+                case OpCode.EXITS: // Special EXIT instruction
+					vm.memory[vm.FP] = vm.FP; // Save the base stack address of the program
+                    vm.PC = vm.memory[vm.FP + 2]; // jump back to the caller
+                    break;
 #endif
                 default:
                     throw new ArgumentOutOfRangeException("Encountered invalid opcode: " + op.opcode);
@@ -684,6 +689,35 @@ namespace TargetVM
 
                         break;
 
+                    case "assemble":
+                    case "asm":
+                        if (cmds.Length >= 2)
+                        {
+                            // Assemble each file passed in as an argument
+                            for (int i = 1; i < cmds.Length; i++)
+                            {
+                                cmds[i] = cmds[i].Replace('_', ' ');
+                                if (File.Exists(cmds[i]))
+                                {
+                                    Assembler a = new Assembler(vm.memory, cmds[i]);
+                                    vm.memory = a.getAssembled(); // technically unnecessary
+
+                                    // Re-decode this instruction (in case it's changed)
+                                    vm.PC -= 2;
+                                    this.op = vm.getNextInstruction();
+                                }
+                                else
+                                {
+                                    Console.WriteLine("Arg #{0} Non-existant file {1}", i, cmds[i]);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine("Monitor: assemble requires a parameter");
+                        }
+                        break;
+
                     case "?":
                     case "help":
                         Console.WriteLine("TARGET MONITOR");
@@ -705,6 +739,7 @@ namespace TargetVM
                         Console.WriteLine("b n        - Hides monitor until operation at n. (break)");
                         Console.WriteLine("g          - Displays all registers (registers)");
                         Console.WriteLine("g {n}      - Displays specific register values");
+                        Console.WriteLine("asm f      - Assembles file f");
                         Console.WriteLine("calc {n}   - Calculates the address of n");
 
                         break;
@@ -866,8 +901,7 @@ namespace TargetVM
             else
             {
                 Console.WriteLine("[Cannot parse address {0}]", value);
-                
-				return 0;
+                return 0;
             }
         }
 

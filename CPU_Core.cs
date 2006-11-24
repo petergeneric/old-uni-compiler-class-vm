@@ -248,7 +248,6 @@ namespace TargetVM
             PC = address; // Branch execution to the specified address
         }
 
-
         /// <summary>Returns the contents of the registers</summary>
         public Hashtable coreDump()
         {

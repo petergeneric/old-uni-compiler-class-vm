@@ -1,4 +1,3 @@
-#define MONO
 using System;
 using System.Collections;
 using System.IO;
@@ -30,11 +29,24 @@ namespace TargetVM
     class Assembler
     {
         private StreamReader file;
-        private ushort[] memory = new ushort[ushort.MaxValue + 1]; // The memory to assemble the file to (allocate 1 extra space to allow for memory[ushort.MaxValue]
+        private ushort[] memory; // The memory to assemble the file to (allocate 1 extra space to allow for memory[ushort.MaxValue]
 
         /// <summary>Assembles a number of source files; each file may contain instructions at any memory location; they are assembled and loaded into memory in the order given</summary>
+        /// <param name="memory">The memory to use</param>
         /// <param name="asmFiles">A list of Target assembly files</param>
+        public Assembler(ushort[] memory, params String[] asmFiles)
+        {
+            this.memory = memory;
+            assembleAll(asmFiles);
+        }
+
         public Assembler(params String[] asmFiles)
+        {
+            this.memory = new ushort[ushort.MaxValue + 1];
+            assembleAll(asmFiles);
+        }
+
+        private void assembleAll(String[] asmFiles)
         {
             foreach (String asmFile in asmFiles)
             {
@@ -243,8 +255,8 @@ namespace TargetVM
             switch (reg)
             {
                 case "BP": return 0;
-                case "FP": return 1;
-                case "MP": return 2;
+                case "FP": return 1; 
+                case "MP": return 2; 
                 case "SP": return 3;
                 default:
                     throw new ArgumentOutOfRangeException("Unknown register: " + reg);

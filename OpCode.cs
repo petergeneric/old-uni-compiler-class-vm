@@ -88,7 +88,8 @@ namespace TargetVM
         INTIN = 45, // read an integer in from the console
         INTOUT = 46, // write an integer to the console
 
-        BLANK = 47 // BLANK instruction (guaranteed no-operation)
+        BLANK = 47, // BLANK instruction (guaranteed no-operation)
+        EXITS = 48 // Special EXIT instruction
 #endif
     }
 }

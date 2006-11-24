@@ -114,6 +114,7 @@ namespace TargetVM
             {
 #if !NOEXTENDEDINSTRUCTIONS
                 case OpCode.BLANK: return op.ToString(); // NONSTANDARD
+                case OpCode.EXITS: return op.ToString(); // NONSTANDARD
 #endif
                 case OpCode.NOOP: return op.ToString();
                 case OpCode.ADD: return op.ToString();
