@@ -1,0 +1,23 @@
+LISTING PRODUCED BY Model COMPILER (Java Version) 09-Nov-2006 17:20:56
+
+    0   MODULE Program4; 
+    1    
+    2   VAR 
+    3     C:CHAR; 
+    4    
+    5     PROCEDURE A; 
+    6     BEGIN 
+    7        WRITE(C); 
+    8        C := 'a' 
+    9     END A; 
+   10    
+   11   BEGIN 
+   12     C := 'm'; 
+   13     WRITE(C); 
+   14     A; 
+   15     WRITE(C) 
+   16   END Program4. 
+
+
+COMPILATION COMPLETED: NO ERROR(S) REPORTED
+Model Compiler: listing ends

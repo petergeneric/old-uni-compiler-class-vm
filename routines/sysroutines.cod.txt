@@ -1,0 +1,48 @@
+* SYSTEM ROUTINES
+* DESCRIPTION: A series of instructions specifically designed for my Target VM.
+*              These are NOT STANDARD INSTRUCTIONS. They will not work anywhere else
+
+*Initialise IO: Unused
+      10    EXITS
+*      10    INCREG  2,MP
+*      12    LOAD     0,[MP, 1]
+*      14    INCREG  -2,MP
+*      16    STORE    0,[MP, 0]
+*      18    BRN      0,[MP, 1]
+
+*Finalise IO:	Unused
+      30    EXIT
+*Read integer
+      50    INTIN          
+      52    EXIT
+*Write integer
+     100    INTOUT          
+     102    EXIT
+
+* END SYSTEM ROUTINES
+
+
+
+* SYSTEM ROUTINES
+* DESCRIPTION: A series of instructions specifically designed for my Target vm.
+*              These are NOT STANDARD INSTRUCTIONS. They will not work anywhere else
+
+*Initialise IO: Unused
+*      10    MARK     3
+*      12    EXIT
+*Finalise IO:	Unused
+*      30    MARK     3
+*      32    EXIT
+*Read integer
+*      50    MARK     3
+*      52    INTIN          
+*      54    EXIT
+*Write integer
+*     100    MARK     3
+*     102    INTOUT          
+*     104    EXIT
+
+* END SYSTEM ROUTINES
+
+
+
