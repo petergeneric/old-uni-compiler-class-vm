@@ -110,43 +110,42 @@ namespace TargetVM
         {
             OpCode op = (OpCode)opcode;
 
+
             switch (op)
             {
 #if !NOEXTENDEDINSTRUCTIONS
-                case OpCode.BLANK: return op.ToString(); // NONSTANDARD
-                case OpCode.EXITS: return op.ToString(); // NONSTANDARD
+                case OpCode.BLANK: return dasm(op); // NONSTANDARD
 #endif
-                case OpCode.NOOP: return op.ToString();
-                case OpCode.ADD: return op.ToString();
-                case OpCode.SUB: return op.ToString();
-                case OpCode.MUL: return op.ToString();
-                case OpCode.DVD: return op.ToString();
-                case OpCode.DREM: return op.ToString();
-                case OpCode.LAND: return op.ToString();
-                case OpCode.LOR: return op.ToString();
-                case OpCode.INV: return op.ToString();
-                case OpCode.NEG: return op.ToString();
+                case OpCode.NOOP: return dasm(op);
+                case OpCode.ADD: return dasm(op);
+                case OpCode.SUB: return dasm(op);
+                case OpCode.MUL: return dasm(op);
+                case OpCode.DVD: return dasm(op);
+                case OpCode.DREM: return dasm(op);
+                case OpCode.LAND: return dasm(op);
+                case OpCode.LOR: return dasm(op);
+                case OpCode.INV: return dasm(op);
+                case OpCode.NEG: return dasm(op);
 
-                case OpCode.CLT: return op.ToString();
-                case OpCode.CLE: return op.ToString();
-                case OpCode.CEQ: return op.ToString();
-                case OpCode.CNE: return op.ToString();
+                case OpCode.CLT: return dasm(op);
+                case OpCode.CLE: return dasm(op);
+                case OpCode.CEQ: return dasm(op);
+                case OpCode.CNE: return dasm(op);
 
-                case OpCode.EXIT: return op.ToString();
-                case OpCode.HALT: return op.ToString();
+                case OpCode.EXIT: return dasm(op);
+                case OpCode.HALT: return dasm(op);
 
-                case OpCode.CHECK: return op.ToString();
+                case OpCode.CHECK: return dasm(op);
 
-                case OpCode.CHIN: return op.ToString();
-                case OpCode.CHOUT: return op.ToString();
+                case OpCode.CHIN: return dasm(op);
+                case OpCode.CHOUT: return dasm(op);
 
 #if !NOEXTENDEDINSTRUCTIONS
-                case OpCode.INTIN: return op.ToString();  // NONSTANDARD
-                case OpCode.INTOUT: return op.ToString(); // NONSTANDARD
+                case OpCode.INTIN: return dasm(op);  // NONSTANDARD
+                case OpCode.INTOUT: return dasm(op); // NONSTANDARD
 #endif
 
                 // Instructions with only an operand //
-
 
                 case OpCode.LOADL: return dasm(op, operand);
                 case OpCode.LOADI: return dasm(op, operand);
@@ -184,23 +183,30 @@ namespace TargetVM
                 case OpCode.SETSP: return dasm(op, operand, register, indirections);
 
                 default:
-                    Console.WriteLine("Disassembly: Invalid Opcode!");
-                    return "[INVALID MACHINE INSTRUCTION]";
+                    return "[ILLEGAL OPCODE]";
             }
         }
 
 
         #region Disassembly helper functions
+        private static string dasm(OpCode op) {
+            return String.Format("{0:G6}\t\t", op.ToString());
+        }
         private static string dasm(OpCode op, ushort operand)
         {
-            return String.Format("{0:G6}\t{1}", op.ToString(), operand);
+            return String.Format("{0:G6}\t{1}\t", op.ToString(), operand);
             //return op.ToString() + "\t" + operand;
+        }
+
+        // specifically for STORER and LOADR
+        private static string dasm(OpCode op, byte register) {
+            return String.Format("{0:G6}\t{1}\t", op.ToString(), getRegisterName(register));
         }
 
         // Specifically for INCREG; displays OP       REG, n
         private static string dasm(OpCode op, ushort operand, byte register)
         {
-            return String.Format("{0:G6}\t{1}, {2}", op.ToString(), getRegisterName(register), operand);
+            return String.Format("{0:G6}\t{1}, {2}\t", op.ToString(), getRegisterName(register), operand);
         }
 
         private static string dasm(OpCode op, ushort operand, byte register, byte indirections)

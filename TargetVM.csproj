@@ -35,8 +35,11 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="ArgParser.cs" />
     <Compile Include="Assembler.cs" />
     <Compile Include="CpuInstruction.cs" />
     <Compile Include="CPU_Core.cs" />

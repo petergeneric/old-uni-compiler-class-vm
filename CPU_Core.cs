@@ -287,8 +287,8 @@ namespace TargetVM
 
         public void add()
         {
-            short a = (short)this.pop();
             short b = (short)this.pop();
+            short a = (short)this.pop();
 
             int result = a + b;
 
@@ -310,8 +310,8 @@ namespace TargetVM
 
         public void sub()
         {
-            short a = (short)this.pop();
             short b = (short)this.pop();
+            short a = (short)this.pop();
 
             int result = a - b;
 
@@ -333,8 +333,8 @@ namespace TargetVM
 
         public void mul()
         {
-            short a = (short)this.pop();
             short b = (short)this.pop();
+            short a = (short)this.pop();
 
             int result = a * b;
 
@@ -356,8 +356,8 @@ namespace TargetVM
 
         public void div()
         {
-            short a = (short)this.pop();
             short b = (short)this.pop();
+            short a = (short)this.pop();
 
             int result = a / b;
 
@@ -379,8 +379,8 @@ namespace TargetVM
 
         public void mod()
         {
-            short a = (short)this.pop();
             short b = (short)this.pop();
+            short a = (short)this.pop();
 
             int result = a % b;
 
@@ -423,8 +423,8 @@ namespace TargetVM
 
         public void land()
         {
-            ushort a = this.pop();
             ushort b = this.pop();
+            ushort a = this.pop();
 
             ushort result = (ushort)(a | b);
 
@@ -433,8 +433,8 @@ namespace TargetVM
 
         public void lor()
         {
-            ushort a = this.pop();
             ushort b = this.pop();
+            ushort a = this.pop();
 
             ushort result = (ushort)(a | b);
 
@@ -443,8 +443,8 @@ namespace TargetVM
 
         public void lxor()
         {
-            ushort a = this.pop();
             ushort b = this.pop();
+            ushort a = this.pop();
 
             ushort result = (ushort)(a ^ b);
 

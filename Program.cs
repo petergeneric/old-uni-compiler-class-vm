@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 
 // Copyright (c) 2006, Peter Wright <peter@peterphi.com>
 // All rights reserved.
@@ -26,21 +27,26 @@ namespace TargetVM
 {
     class Program
     {
+        public static readonly string assemblyVersion = Assembly.GetExecutingAssembly().GetName().Version.ToString();
+
         private static bool timeExecution = false;
 
         [STAThread]
         static void Main(string[] args)
         {
+#if !DOTNET1
             Console.Title = "Target Virtual Machine";
+#endif
 
-            Console.WriteLine("Target Assembler/Virtual Machine.");
+            Console.WriteLine("Target Assembler/Virtual Machine v{0}.", assemblyVersion);
             Console.WriteLine("Copyright (c) 2006, Peter Wright <peter@peterphi.com>");
             Console.WriteLine("");
 
             Core cpu = new Core();
             Decoder decoder = new Decoder(cpu);
 
-            // Now process any arguments:
+            // Now parse any arguments the user has specified on the command-line
+            #region argument parsing
             for (int i=0;i<args.Length;i++) {
                 if (args[i] != null && args[i].StartsWith("--"))
                 {
@@ -59,12 +65,15 @@ namespace TargetVM
                             Console.WriteLine("--haltBreak Toggles breaking on HALT (default {0})", decoder.haltBreak);
                             Console.WriteLine("--noopBreak Toggles breaking on NOOP (default {0})", decoder.noopBreak);
                             Console.WriteLine("--decode    Toggles monitor's automatic decoding (default {0})", decoder.autoDecode);
+                            Console.WriteLine("--echoasm   Toggles assembler's asm echo (default {0})", Assembler.echoAssembledInstructions);
                             Console.WriteLine("--pc #      Sets initial PC value to # (default {0})", decoder.vm.PC);
                             Console.WriteLine("--fp #      Sets initial FP value to # (default {0})", decoder.vm.FP);
                             Console.WriteLine("--sp #      Sets initial SP value to # (default {0})", decoder.vm.SP);
                             Console.WriteLine("--mp #      Sets initial MP value to # (default {0})", decoder.vm.MP);
                             Console.WriteLine("--bp #      Sets initial BP value to # (default {0})", decoder.vm.BP);
                             Console.WriteLine("--time      Toggles performance timing (default {0})", timeExecution);
+                            Console.WriteLine("--trace     Saves a trace to file f");
+                            Console.WriteLine("--logio     Logs all IO to file f");
                             Console.WriteLine("Option arguments are not error-handled.");
 
                             return;
@@ -102,6 +111,19 @@ namespace TargetVM
                         case "--debug": // Display monitor immediately
                             decoder.debug = !decoder.debug;
                             break;
+                        case "--logio":
+                        case "--lio": // Log IO to disk
+                            decoder.startIOLog(args[i + 1]);
+                            args[i + 1] = null;
+                            break;
+                        case "--trace":
+                        case "--tracefile": // Save traces to disk
+                            decoder.startTrace(args[i+1]);
+                            args[i + 1] = null;
+                            break;
+                        case "--echoasm":
+                            Assembler.echoAssembledInstructions = !Assembler.echoAssembledInstructions;
+                            break;
                         case "--break": // Enable the monitor, place a breakpoint at the address specified in the next argument:
                             decoder.debug = true;
                             decoder.addrBreak = ushort.Parse(args[i + 1]);
@@ -114,6 +136,7 @@ namespace TargetVM
                     }
                 }
             }
+            #endregion
 
             DateTime asmStart = DateTime.Now;
 
@@ -122,7 +145,7 @@ namespace TargetVM
             DateTime asmStop = DateTime.Now;
             cpu.memory = a.getAssembled();
 
-
+            Console.WriteLine("\nStarting CPU...");
             DateTime runStart = DateTime.Now;
             // Execute until the CPU is halted
             while (!decoder.halted)
@@ -139,7 +162,7 @@ namespace TargetVM
                 Console.WriteLine("    Assembly Duration: {0}", tAsm);
                 Console.WriteLine("   Execution Duration: {0}", tRun);
                 Console.WriteLine("Instructions executed: {0}", decoder.executedInstructions);
-                Console.WriteLine("              ops/sec: {0}", ((double)decoder.executedInstructions / tRun.TotalSeconds));
+                Console.WriteLine("      average ops/sec: {0}", ((double)decoder.executedInstructions / tRun.TotalSeconds));
                 Console.WriteLine("<PRESS ENTER>");
                 Console.ReadLine();
 

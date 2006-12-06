@@ -1,3 +1,4 @@
+#define SYSROUTINE_INT_HACK // Ugly hack to side-step the stack corruption by readInt and writeInt sys routines
 using System;
 using System.Collections;
 using System.IO;
@@ -47,7 +48,7 @@ namespace TargetVM
             }
         }
 
-        #region Monitor flags
+        #region Monitor flags 
         /// <summary>If set to true (and DOBEEPS is defined), will beep when the monitor appears</summary>
         public bool monitorBeep = true;
         /// <summary>If set to true, the monitor will appear after the next instruction fetch</summary>
@@ -68,6 +69,13 @@ namespace TargetVM
         public int addrBreak = -1;
         /// <summary>If nonzero, the monitor will not be displayed until the monitor has been requested this number of times</summary>
         public int monitorSkipInstructions = 0;
+
+        private bool saveTrace = false;
+        private StreamWriter traceFile = null;
+
+        private bool ioLog = false;
+        private StreamWriter ioFile = null;
+        
         #endregion
 
         public Decoder(Core vm)
@@ -75,7 +83,7 @@ namespace TargetVM
             this.vm = vm;
         }
 
-        /// <summary>Decodes an instruction</summary>
+        /// <summary>Decodes and executes an instruction</summary>
         public void tick()
         {
             op = vm.getNextInstruction();
@@ -86,6 +94,11 @@ namespace TargetVM
             }
 
             ++executedInstructions;
+
+            if (saveTrace) {
+                traceFile.WriteLine("\t\tPSR={0}, FP={1}, SP={2}, MP={3}", vm.PSR, vm.FP, vm.SP, vm.MP);
+                traceFile.Write(op.ToString());
+            }
 
             switch ((OpCode)op.opcode)
             {
@@ -180,7 +193,10 @@ namespace TargetVM
                 case OpCode.BRN:
                     vm.branch(op.getOffsetOperand()); break;
                 case OpCode.BIDX:
-                    vm.PC += (ushort)(op.operand * vm.pop());
+                    ushort jumpIncrement = vm.pop();
+                    ushort increments = op.operand;
+                    ushort jumpWords = (ushort) (jumpIncrement * increments);
+                    vm.PC += jumpWords;
                     break;
                 case OpCode.BZE: // Branch to m if pop() == 0
                     if (vm.pop() == 0)
@@ -228,10 +244,48 @@ namespace TargetVM
                     break;
 
                 case OpCode.CALL: // Store FP and PC to the current frame; FP=MP; PC=m
+#if SYSROUTINE_INT_HACK
+                    ushort jumpTo = op.getOffsetOperand();
+
+                    if (jumpTo == 50 || jumpTo == 100) {
+                        if (jumpTo == 50) { // readInt
+                            ioSinceMonitor = true;
+
+                            bool valid = false;
+                            while (!valid) {
+                                try {
+                                    string intinLine = Console.ReadLine();
+                                    short intin = (short)int.Parse(intinLine);
+                                    vm.push((ushort)intin);
+                                    if (ioLog) if (ioLog) ioFile.WriteLine(intin);
+                                    valid = true;
+                                }
+                                catch (FormatException) {
+                                    Console.WriteLine("(Invalid Number. Try again)");
+                                }
+                            }
+                        }
+                        else { // writeInt
+                            ioSinceMonitor = true;
+                            short intout = (short) vm.pop();
+                            Console.Write(intout);
+                            if (ioLog) ioFile.Write(intout);
+                            break;
+                        }
+                    }
+                    else {
+                        vm.memory[vm.MP + 1] = vm.FP;
+                        vm.memory[vm.MP + 2] = vm.PC;
+                        vm.FP = vm.MP;
+                        vm.PC = jumpTo;
+                    }
+#else
                     vm.memory[vm.MP + 1] = vm.FP;
                     vm.memory[vm.MP + 2] = vm.PC;
                     vm.FP = vm.MP;
                     vm.PC = op.getOffsetOperand();
+#endif
+
                     break;
 
                 case OpCode.EXIT: // Restore FP and PC from the MP stack
@@ -329,34 +383,25 @@ namespace TargetVM
                 // Character reading and writing:
                 case OpCode.CHIN:
                     ioSinceMonitor = true;
-                    vm.push((ushort)Console.ReadKey().KeyChar); // Technically allows unicode
+#if !DOTNET1
+                    char chinChar = Console.ReadKey().KeyChar;
+#else
+		    char chinChar = readChar();
+#endif
+                    vm.push((ushort)chinChar); // Technically allows unicode
+                    if (ioLog) ioFile.Write(chinChar);
                     break;
 
                 case OpCode.CHOUT:
                     ioSinceMonitor = true;
-                    char c = (char)vm.pop();
-                    Console.Write(c); // Technically allows unicode
+                    char choutChar = (char)vm.pop();
+                    Console.Write(choutChar); // Technically allows unicode
+                    if (ioLog) ioFile.Write(choutChar);
                     break;
 
                     ////-------------- NON-STANDARD OPCODES FOLLOW! --------------////
 #if !NOEXTENDEDINSTRUCTIONS
-                case OpCode.INTIN: // Read an integer (simplifies the system routine)
-                    ioSinceMonitor = true;
-                    string intinLine = Console.ReadLine();
-                    short intin = (short) int.Parse(intinLine);
-                    vm.push((ushort)intin);
-                    break;
-
-                case OpCode.INTOUT: // Write an integer (simplifies the system routine)
-                    ioSinceMonitor = true;
-                    short intout = (short)vm.pop();
-                    Console.Write(intout);
-                    break;
                 case OpCode.BLANK: // Do absolutely nothing (please use for VM debugging only!)
-                    break;
-                case OpCode.EXITS: // Special EXIT instruction
-					vm.memory[vm.FP] = vm.FP; // Save the base stack address of the program
-                    vm.PC = vm.memory[vm.FP + 2]; // jump back to the caller
                     break;
 #endif
                 default:
@@ -366,6 +411,7 @@ namespace TargetVM
             // If the CPU has been halted:
             if (vm.halted)
             {
+                closeFiles();
                 Console.WriteLine("\n>VM: CPU HALTED");
 
                 // Run the monitor
@@ -377,6 +423,40 @@ namespace TargetVM
             }
         } // end tick()
 
+        public void closeFiles() {
+            if (saveTrace) {
+                traceFile.WriteLine("\t\tPSR={0}, FP={1}, SP={2}, MP={3}", vm.PSR, vm.FP, vm.SP, vm.MP);
+                traceFile.WriteLine("-- TRACE ENDS   --");
+                traceFile.Flush();
+                traceFile.Close();
+                traceFile = null;
+                saveTrace = false;
+            }
+
+            if (ioLog) {
+                if (ioLog) ioFile.WriteLine();
+                if (ioLog) ioFile.WriteLine(String.Format("-- IO LOG ENDS   {0} {1} --", DateTime.Now.ToLongDateString(), DateTime.Now.ToLongTimeString()));
+                ioFile.Flush();
+                ioFile.Close();
+            }
+        }
+
+        #region Trace Support
+        public void startTrace(string fileName) {
+            traceFile = new StreamWriter(fileName);
+            saveTrace = true;
+            traceFile.WriteLine(String.Format("-- TRACE BEGINS {0} {1} --", DateTime.Now.ToLongDateString(), DateTime.Now.ToLongTimeString()));
+            traceFile.Write("Initial register values");
+        }
+        #endregion
+
+        #region Log IO support
+        public void startIOLog(string fileName) {
+            ioFile = new StreamWriter(fileName);
+            ioLog = true;
+            if (ioLog) ioFile.WriteLine(String.Format("-- IO LOG BEGINS {0} {1} --", DateTime.Now.ToLongDateString(), DateTime.Now.ToLongTimeString()));
+        }
+        #endregion
 
         #region Monitor Code
         /// <summary>A simple debugging console</summary>
@@ -401,8 +481,7 @@ namespace TargetVM
                 }
             }
 
-            string cmd;
-            string[] cmds;
+            
 #if DOBEEP
             if (monitorBeep) System.Media.SystemSounds.Beep.Play();
 #endif
@@ -420,11 +499,16 @@ namespace TargetVM
 
             }
             // Keep accepting arguments until we receive a terminal command
+            
             while (true)
             {
-                Console.Write("[{0}] Monitor>", (vm.PC - 2));
-                cmd = Console.ReadLine().Trim();
-                cmds = cmd.Split(new char[] { ' ' });
+                string[] cmds = null;
+
+                    Console.Write("[{0}] Monitor>", (vm.PC - 2));
+                    cmds = TargetVM.std.ArgParser.parse(Console.ReadLine());
+                    
+                    // Empty command string = the same as "continue"
+                    if (cmds.Length == 0) return;
 
                 switch (cmds[0].ToLower())
                 {
@@ -477,6 +561,8 @@ namespace TargetVM
                     case "exit":
                     case "quit":
                     case "q": // halt execution and terminate
+                        closeFiles();
+
                         Console.WriteLine("Target Monitor: goodbye.");
                         System.Environment.Exit(0);
                         return;
@@ -696,7 +782,6 @@ namespace TargetVM
                             // Assemble each file passed in as an argument
                             for (int i = 1; i < cmds.Length; i++)
                             {
-                                cmds[i] = cmds[i].Replace('_', ' ');
                                 if (File.Exists(cmds[i]))
                                 {
                                     Assembler a = new Assembler(vm.memory, cmds[i]);
@@ -714,19 +799,43 @@ namespace TargetVM
                         }
                         else
                         {
-                            Console.WriteLine("Monitor: assemble requires a parameter");
+                            Console.WriteLine("Monitor: assemble requires a parameter. Please quote paths with spaces in them.");
                         }
                         break;
-
+                    case "t": case "trace": case "savetrace":
+                        if (cmds.Length == 2) {
+                            Console.WriteLine("Monitor: Tracing Enabled");
+                            startTrace(cmds[1]);
+                        }
+                        else {
+                            Console.WriteLine("Monitor: trace requires one parameter");
+                        }
+                        break;
+                    case "logio": case "lio": case "io": case "l":
+                        if (cmds.Length == 2) {
+                            Console.WriteLine("Monitor: IO Logging Enabled");
+                            startIOLog(cmds[1].Replace('_', ' '));
+                        }
+                        else {
+                            Console.WriteLine("Monitor: logio requires one parameter. Please quote paths with spaces in them.");
+                        }
+                        break;
                     case "?":
                     case "help":
-                        Console.WriteLine("TARGET MONITOR");
+#if !DOTNET1
+                        Console.BackgroundColor = ConsoleColor.Blue;
+                        Console.ForegroundColor = ConsoleColor.White;
+#endif
+                        Console.WriteLine("TARGET MONITOR - QUICK HELP");
+#if !DOTNET1
+                        Console.ResetColor();
+#endif
                         Console.WriteLine("Copyright (c) 2006, Peter Wright <peter@peterphi.com>");
                         Console.WriteLine("Commands that take -n consider it to be a signed access of n.");
                         Console.WriteLine("Commands that take n can understand 'sp', '0,[fp,1]', etc.");
-                        Console.WriteLine("d {n}      - Displays a rough decode of the instruction[s] at n.");
-                        Console.WriteLine("             Current instruction displayed if none are specified");
-                        Console.WriteLine("             (decode)");
+                        Console.WriteLine("d {n}      - Displays a decode of the instruction[s] at n.");
+                        Console.WriteLine("             Current instruction displayed if none are");
+                        Console.WriteLine("             specified (decode)");
                         Console.WriteLine("p [-][n]   - Displays the top n items on the stack. (peek)");
                         Console.WriteLine("i [-]{n}   - Displays values stored in memory location[s] n.");
                         Console.WriteLine("j addr     - Branches immediately to ADDR. (jump)");
@@ -739,8 +848,10 @@ namespace TargetVM
                         Console.WriteLine("b n        - Hides monitor until operation at n. (break)");
                         Console.WriteLine("g          - Displays all registers (registers)");
                         Console.WriteLine("g {n}      - Displays specific register values");
+                        Console.WriteLine("calc {n}   - Calculates the address n");
                         Console.WriteLine("asm f      - Assembles file f");
-                        Console.WriteLine("calc {n}   - Calculates the address of n");
+                        Console.WriteLine("t f        - Starts saving trace data to file f");
+                        Console.WriteLine("l f        - Logs all IO to file f");
 
                         break;
 
@@ -798,7 +909,11 @@ namespace TargetVM
             }
 
             // expect address,register:
+#if !DOTNET1
             if (value.StartsWith("[") && value.Contains(",")) // expect [address,indirections]
+#else
+            if (value.StartsWith("[") && stringContains(value, ",")) // expect [address,indirections]
+#endif
             {
                 string[] addrReg = value.Replace("[", "").Replace("]", "").Split(new char[] { ',' }, 2);
                 ushort regOffset = parseAddr(addrReg[0]);
@@ -812,7 +927,11 @@ namespace TargetVM
 
                 return regOffset;
             }
+#if !DOTNET1
             else if (value.Contains(",") && value.Contains("[")) // expect address,[reg,indirections]
+#else
+            else if (stringContains(value, ",") && stringContains(value, "[")) // expect address,[reg,indirections]
+#endif
             {
                 string[] addrReg = value.Split(new char[] { ',' }, 2);
                 ushort baseAddr = parseAddr(addrReg[0]);
@@ -820,7 +939,11 @@ namespace TargetVM
 
                 return (ushort)(baseAddr + regOffset);
             }
+#if !DOTNET1
             else if (value.Contains(",") && char.IsDigit(value[0])) // Technically this allows for 10,10,SP.
+#else
+            else if (stringContains(value, ",") && char.IsDigit(value[0])) // Technically this allows for 10,10,SP.
+#endif
             {
                 string[] addrReg = value.Split(new char[] {','}, 2);
                 ushort baseAddr = ushort.Parse(addrReg[0]);
@@ -828,7 +951,11 @@ namespace TargetVM
 
                 return (ushort)(baseAddr + regOffset);
             }
+#if !DOTNET1
             else if (value.Contains("+")) // Allow VERY BASIC addition
+#else
+            else if (stringContains(value, "+")) // Allow VERY BASIC addition
+#endif
             {
                 string[] addrReg = value.Split(new char[] { '+' }, 2);
                 ushort baseAddr = parseAddr(addrReg[0]);
@@ -836,7 +963,11 @@ namespace TargetVM
 
                 return (ushort)(baseAddr + posOffset);
             }
+#if !DOTNET1
             else if (value.Contains("-")) // Allow VERY BASIC subtraction
+#else
+            else if (stringContains(value, "-")) // Allow VERY BASIC subtraction
+#endif
             {
                 string[] addrReg = value.Split(new char[] { '-' });
                 ushort baseAddr = parseAddr(addrReg[0]);
@@ -906,5 +1037,26 @@ namespace TargetVM
         }
 
         #endregion
+
+
+
+#region .NET 1.1 helper functions
+#if DOTNET1
+	public static bool stringContains(string a, string b) {
+		return a.IndexOf(b) != -1;
+	}
+
+
+	public char readChar() {
+		int character = Console.Read();
+
+		if (character == -1) {
+			throw new Exception("End of STDIN");
+		}
+
+		return (char) character;
+	}
+#endif
+#endregion
     }
 }
