@@ -1,0 +1,107 @@
+LISTING PRODUCED BY Model COMPILER (Java Version) 02-Dec-2006 02:00:17
+
+    0   MODULE Program4; 
+    1    
+    2   VAR 
+    3     I,J,K,X:INTEGER; 
+    4    
+    5   BEGIN 
+    6     FOR I := 0 TO 300 DO 
+    7         FOR J := 0 TO 300 DO 
+    8           X := X + 1 
+    9         END 
+   10     END; 
+   11    
+   12     WRITE(X); 
+   13    
+   14     // Test a simple IF statement 
+   15     I := 12; 
+   16     IF (I = 12) THEN 
+   17       WRITE(1) 
+   18     ELSE 
+   19       WRITE(0) 
+   20     END; 
+   21    
+   22     // Test addition in an IF statement 
+   23     J := 11; 
+   24     IF (I = (J+1)) THEN 
+   25       WRITE(1) 
+   26     ELSE 
+   27       WRITE(0) 
+   28     END; 
+   29    
+   30    
+   31     // Test comparisons 
+   32     IF (J < 300) THEN 
+   33       WRITE(1) 
+   34     ELSE 
+   35       WRITE(0) 
+   36     END; 
+   37    
+   38     // Test greater than 
+   39     IF (300 > J) THEN 
+   40       WRITE(1) 
+   41     ELSE 
+   42       WRITE(0) 
+   43     END; 
+   44    
+   45     // Test >= 
+   46     IF (J >= 10) THEN 
+   47       WRITE(1) 
+   48     ELSE 
+   49       WRITE(0) 
+   50     END; 
+   51    
+   52     IF (TRUE OR FALSE) THEN 
+   53       WRITE(1) 
+   54     ELSE 
+   55       WRITE(0) 
+   56     END; 
+   57    
+   58     IF (TRUE AND (NOT TRUE)) THEN 
+   59       WRITE(0) 
+   60     ELSE 
+   61       WRITE(1) 
+   62     END; 
+   63    
+   64    
+   65    
+   66    
+   67    
+   68     // Test less than or equals: 
+   69     IF (1 <= 1) THEN 
+   70       WRITE(1) 
+   71     ELSE 
+   72       WRITE(0) 
+   73     END; 
+   74    
+   75     IF (1 <= 2) THEN 
+   76       WRITE(1) 
+   77     ELSE 
+   78       WRITE(0) 
+   79     END; 
+   80    
+   81     IF (2 <= 1) THEN 
+   82       WRITE(0) 
+   83     ELSE 
+   84       WRITE(1) 
+   85     END; 
+   86       
+   87     IF (FALSE OR (2 < 1)) THEN 
+   88       WRITE(0) 
+   89     ELSE 
+   90       WRITE(1) 
+   91     END; 
+   92    
+   93     IF (FALSE OR (2 > 1)) THEN 
+   94       WRITE(1) 
+   95     ELSE 
+   96       WRITE(0) 
+   97     END; 
+   98    
+   99    
+  100     WRITE('Z') 
+  101   END Program4. 
+
+
+COMPILATION COMPLETED: NO ERROR(S) REPORTED

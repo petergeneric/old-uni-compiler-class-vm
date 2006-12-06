@@ -1,5 +1,14 @@
+#define FASTPSR
+
+
 using System;
 using System.Collections;
+
+// DEFINEables:
+// OPCACHE - Enables the operation cache. This will improve performance on code with LOTS of repetition (side-effect: some memory is wasted, instructions cannot be rewritten on the fly)
+// FASTPSR - Optimises the PSR for setting. Retrieving the PSR value will incur a performance penalty. This makes sense so you should probably keep it defined
+
+
 
 // Copyright (c) 2006, Peter Wright <peter@peterphi.com>
 // All rights reserved.
@@ -11,6 +20,9 @@ using System.Collections;
 //     * Redistributions in binary form must reproduce the above copyright
 //       notice, this list of conditions and the following disclaimer in the
 //       documentation and/or other materials provided with the distribution.
+//     * The work or any derived work is made available for distribution
+//       freely, and that the location is readily available to anyone who
+//       wishes to download it.
 //
 // THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
 // INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
@@ -26,17 +38,29 @@ using System.Collections;
 namespace TargetVM
 {
     /// <summary>The core of the virtual machine - memory, registers and rudimentary stack functions</summary>
+    /// <remarks>Methods are marked as unsafe because we can guarantee safe memory access (memory.size=ushort.max;accessing memory with a ushort)</remarks>
     class Core
     {
         public ushort[] memory = new ushort[ushort.MaxValue];
 
+#if OPCACHE
+        private static readonly int OPCACHE_SIZE = 500;
+        private CpuInstruction[] opCache = new CpuInstruction[OPCACHE_SIZE-1];
+#endif
+        
         public ushort PC = 0;   // Program Counter
         public ushort SP = 0;  // Stack Pointer
         public ushort BP = 0;  // Base Pointer
         public ushort FP = 0;  // Frame Pointer
         public ushort MP = 0;  // Mark Pointer
-        public ushort PSR = 0; // Program Status Register (psr[CVEHMRI] properties exist)
-        public bool halted = false; // Duplicate of PSR[H] state - provided for performance
+        
+#if FASTPSR
+        // Program Status Register - represents psr[CVEHMRI]
+        public bool psrC = false, psrV=false, psrE=false, psrH=false, psrM=false, psrR=false, psrI=false;
+#else
+        public ushort PSR = 0; // Program Status Register - psr[CVEHMRI] properties exist
+        public bool halted; // copy of psrH for performance
+#endif
 
         #region Easy register access
         public ushort getRegister(byte reg)
@@ -82,7 +106,33 @@ namespace TargetVM
         }
         #endregion
 
-        #region PSR Bits
+        #region PSR access (FAST and slow)
+#if FASTPSR
+        public unsafe ushort PSR {
+            get {
+                return (ushort) (
+                    (psrC ?  1 : 0) +
+                    (psrV ?  2 : 0) +
+                    (psrE ?  4 : 0) +
+                    (psrH ?  8 : 0) +
+                    (psrM ? 16 : 0) +
+                    (psrR ? 32 : 0) +
+                    (psrI ? 64 : 0));
+            }
+            set {
+                psrC = (value & 1) != 0;
+                psrV = (value & 2) != 0;
+                psrE = (value & 4) != 0;
+                psrH = (value & 8) != 0;
+                psrM = (value & 16) != 0;
+                psrR = (value & 32) != 0;
+                psrI = (value & 64) != 0;
+            }
+        }
+
+        
+#else
+        #region Slow PSR Bits
         public bool psrC
         {
             get
@@ -188,25 +238,19 @@ namespace TargetVM
         }
         #endregion
         #endregion
-
+#endif
+        #endregion
 
         /// <summary>Pops a word off the stack</summary>
         /// <returns>The word on top of the stack</returns>
-        public ushort pop()
+        public unsafe ushort pop()
         {
             return memory[--SP];
         }
 
-        /// <summary>Peeks at the word on the top of the stack</summary>
-        /// <returns>The word on top of the stack</returns>
-        public ushort peek()
-        {
-            return memory[SP - 1];
-        }
-
         /// <summary>Pushes a value onto the stack</summary>
         /// <param name="val">Pushes a word onto the top of the stack</param>
-        public void push(ushort val)
+        public unsafe void push(ushort val)
         {
             memory[SP++] = val;
         }
@@ -215,7 +259,7 @@ namespace TargetVM
         /// <param name="source">source</param>
         /// <param name="dest">destination</param>
         /// <param name="size">the number of words to copy</param>
-        public void memCopyWord(ushort source, ushort dest, ushort size)
+        public unsafe void memCopyWord(ushort source, ushort dest, ushort size)
         {
             for (; size != 0; --size)
             {
@@ -224,30 +268,62 @@ namespace TargetVM
         }
 
 
-        public CpuInstruction getNextInstruction()
+#if !OPCACHE
+        /// <summary>getNextInstruction() modifies this object to minimise memory & GC footprint</summary>
+        private CpuInstruction obj = new CpuInstruction();
+#endif
+
+        public unsafe CpuInstruction getNextInstruction()
         {
-            CpuInstruction op = new CpuInstruction();
+#if OPCACHE
+            // If this instruction is at a cacheable memory location...
+            if (PC < OPCACHE_SIZE)
+            {
+                // Cache Miss - generate the object and insert it into the cache
+                if (opCache[PC] == null)
+                {
+                    CpuInstruction obj = new CpuInstruction();
+                    obj.vm = this;
+                    obj[0] = memory[PC++];
+                    obj[1] = memory[PC++];
 
-            op.vm = this;
-            op[0] = memory[PC++];
-            op[1] = memory[PC++];
+                    opCache[PC-2] = obj;
+                    
+                    return obj;
+                }
+                else // Cache Hit - return the cached instruction
+                {
+                    CpuInstruction tmp = opCache[PC];
+                    PC += 2;
+                    return tmp;
+                }
+            }
+            else
+            {
+                CpuInstruction obj = new CpuInstruction();
+                obj.vm = this;
 
-            // The above also advances 2 words
+                obj[0] = memory[PC++];
+                obj[1] = memory[PC++];
 
-            return op;
+                return obj;
+            }
+#else
+                // Uncached operation cache
+                obj.vm = this;
+
+                obj[0] = memory[PC++];
+                obj[1] = memory[PC++];
+
+                return obj;
+#endif
         }
 
 
 
 
 
-        /// <summary>Branches execution to the specified memory address</summary>
-        /// <param name="address">The memory address to branch to</param>
-        public void branch(ushort address)
-        {
-            PC = address; // Branch execution to the specified address
-        }
-
+        #region core dump
         /// <summary>Returns the contents of the registers</summary>
         public Hashtable coreDump()
         {
@@ -261,16 +337,16 @@ namespace TargetVM
 
             return d;
         }
+        #endregion
 
 
-
-        public void incr(short amount)
+        public unsafe void incr(short amount)
         {
             short a = (short)this.pop();
 
             int result = a + amount;
 
-            if (result <= short.MaxValue || result >= short.MinValue)
+            if (result <= short.MaxValue && result >= short.MinValue)
             {
                 this.push((ushort)((short)result));
                 this.psrV = false;
@@ -285,14 +361,14 @@ namespace TargetVM
             }
         }
 
-        public void add()
+        public unsafe void add()
         {
             short b = (short)this.pop();
             short a = (short)this.pop();
 
             int result = a + b;
 
-            if (result <= short.MaxValue || result >= short.MinValue)
+            if (result <= short.MaxValue && result >= short.MinValue)
             {
                 this.push((ushort)((short)result));
                 this.psrV = false;
@@ -308,14 +384,14 @@ namespace TargetVM
             }
         }
 
-        public void sub()
+        public unsafe void sub()
         {
             short b = (short)this.pop();
             short a = (short)this.pop();
 
             int result = a - b;
 
-            if (result <= short.MaxValue || result >= short.MinValue)
+            if (result <= short.MaxValue && result >= short.MinValue)
             {
                 this.push((ushort)((short)result));
                 this.psrV = false;
@@ -331,14 +407,14 @@ namespace TargetVM
             }
         }
 
-        public void mul()
+        public unsafe void mul()
         {
             short b = (short)this.pop();
             short a = (short)this.pop();
 
             int result = a * b;
 
-            if (result <= short.MaxValue || result >= short.MinValue)
+            if (result <= short.MaxValue && result >= short.MinValue)
             {
                 this.push((ushort)((short)result));
                 this.psrV = false;
@@ -354,14 +430,14 @@ namespace TargetVM
             }
         }
 
-        public void div()
+        public unsafe void div()
         {
             short b = (short)this.pop();
             short a = (short)this.pop();
 
             int result = a / b;
 
-            if (result <= short.MaxValue || result >= short.MinValue)
+            if (result <= short.MaxValue && result >= short.MinValue)
             {
                 this.push((ushort)((short)result));
                 this.psrV = false;
@@ -377,14 +453,14 @@ namespace TargetVM
             }
         }
 
-        public void mod()
+        public unsafe void mod()
         {
             short b = (short)this.pop();
             short a = (short)this.pop();
 
             int result = a % b;
 
-            if (result <= short.MaxValue || result >= short.MinValue)
+            if (result <= short.MaxValue && result >= short.MinValue)
             {
                 this.push((ushort)((short)result));
                 this.psrV = false;
@@ -400,13 +476,13 @@ namespace TargetVM
             }
         }
 
-        public void neg()
+        public unsafe void neg()
         {
             short a = (short)this.pop();
 
             int result = -a;
 
-            if (result <= short.MaxValue || result >= short.MinValue)
+            if (result <= short.MaxValue && result >= short.MinValue)
             {
                 this.push((ushort)((short)result));
                 this.psrV = false;
@@ -421,7 +497,7 @@ namespace TargetVM
             }
         }
 
-        public void land()
+        public unsafe void land()
         {
             ushort b = this.pop();
             ushort a = this.pop();
@@ -431,7 +507,7 @@ namespace TargetVM
             this.push((ushort)result);
         }
 
-        public void lor()
+        public unsafe void lor()
         {
             ushort b = this.pop();
             ushort a = this.pop();
@@ -441,7 +517,7 @@ namespace TargetVM
             this.push((ushort)result);
         }
 
-        public void lxor()
+        public unsafe void lxor()
         {
             ushort b = this.pop();
             ushort a = this.pop();
@@ -452,12 +528,12 @@ namespace TargetVM
         }
 
 
-        public void lnot()
+        public unsafe void lnot()
         {
             this.push((ushort)~this.pop());
         }
 
-        public void lsl(ushort shiftBy)
+        public unsafe void lsl(ushort shiftBy)
         {
             ushort val = this.pop();
             val = (ushort)(val << (shiftBy % 16));
@@ -465,7 +541,7 @@ namespace TargetVM
             push(val);
         }
 
-        public void lsr(ushort shiftBy)
+        public unsafe void lsr(ushort shiftBy)
         {
             ushort val = this.pop();
             val = (ushort)(val >> (shiftBy % 16));

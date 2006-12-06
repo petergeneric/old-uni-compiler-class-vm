@@ -10,6 +10,9 @@ using System;
 //     * Redistributions in binary form must reproduce the above copyright
 //       notice, this list of conditions and the following disclaimer in the
 //       documentation and/or other materials provided with the distribution.
+//     * The work or any derived work is made available for distribution
+//       freely, and that the location is readily available to anyone who
+//       wishes to download it.
 //
 // THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
 // INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
@@ -25,17 +28,20 @@ using System;
 namespace TargetVM
 {
     /// <summary>Structured view of an instruction</summary>
-    struct CpuInstruction
+    class CpuInstruction
     {
+        /// <summary>We need a reference to the machine's core so we can abstract indirections inside this class</summary>
         public Core vm;
+
+
         public byte opcode;
         public byte register;
         public byte indirections;
         public ushort operand;
 
-        /// <summary>Decodes/encodes an instruction</summary>
+        /// <summary>Decodes/encodes an instruction.</summary>
         /// <param name="index">0 or 1</param>
-        /// <returns></returns>
+        /// <returns>the value at that address relative to the start of the instruction</returns>
         public ushort this[int index]
         {
             #region getter (encode)
@@ -82,7 +88,7 @@ namespace TargetVM
         }
 
         /// <summary>Offsets the operand by the value in L indirections from register r.</summary>
-        /// <returns></returns>
+        /// <returns>the "m" (as defined in the spec) for this instruction</returns>
         public ushort getOffsetOperand()
         {
             return (ushort)(operand + indirect(vm.getRegister(register), indirections));
@@ -140,10 +146,6 @@ namespace TargetVM
                 case OpCode.CHIN: return dasm(op);
                 case OpCode.CHOUT: return dasm(op);
 
-#if !NOEXTENDEDINSTRUCTIONS
-                case OpCode.INTIN: return dasm(op);  // NONSTANDARD
-                case OpCode.INTOUT: return dasm(op); // NONSTANDARD
-#endif
 
                 // Instructions with only an operand //
 
@@ -195,7 +197,6 @@ namespace TargetVM
         private static string dasm(OpCode op, ushort operand)
         {
             return String.Format("{0:G6}\t{1}\t", op.ToString(), operand);
-            //return op.ToString() + "\t" + operand;
         }
 
         // specifically for STORER and LOADR
@@ -212,7 +213,6 @@ namespace TargetVM
         private static string dasm(OpCode op, ushort operand, byte register, byte indirections)
         {
             return String.Format("{0:G6}\t{1},[{2}, {3}]", op.ToString(), operand, getRegisterName(register), indirections);
-            //return op.ToString() + "\t" + operand + ",[" + getRegisterName(register) + ", " + indirections + "]";
         }
 
         /// <summary>Returns the human name of a register</summary>

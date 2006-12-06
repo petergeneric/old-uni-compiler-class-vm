@@ -1,4 +1,5 @@
 #define AUTOASSEMBLE_SYSROUTINES_IO // When defined, initialiseIO and finaliseIO will be assembled automatically
+#define MONO // When defined, we'll avoid a String.Split call that has a broken implementation in Mono
 
 using System;
 using System.Collections;
@@ -14,6 +15,9 @@ using System.IO;
 //     * Redistributions in binary form must reproduce the above copyright
 //       notice, this list of conditions and the following disclaimer in the
 //       documentation and/or other materials provided with the distribution.
+//     * The work or any derived work is made available for distribution
+//       freely, and that the location is readily available to anyone who
+//       wishes to download it.
 //
 // THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
 // INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
@@ -27,12 +31,14 @@ using System.IO;
 // THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace TargetVM {
-    
-    /// <summary>Assembles Target instruction files</summary>
+
+    /// <summary>Assembles Target instruction files. It's designed to read the output of the Model compiler</summary>
     class Assembler {
-        private StreamReader file;
-        private ushort[] memory; // The memory to assemble the file to (allocate 1 extra space to allow for memory[ushort.MaxValue]
-        public static bool echoAssembledInstructions = false;
+        private StreamReader file; // The file we're currently assembling
+        public static bool echoAssembledInstructions = false; // If true, all instructions assembled are printed. (default value. see --echoasm)
+        private ushort[] memory; // The memory to assemble the file to
+
+
 
         /// <summary>Assembles a number of source files; each file may contain instructions at any memory location; they are assembled and loaded into existing memory in the order given</summary>
         /// <param name="memory">The memory to use</param>
@@ -45,7 +51,9 @@ namespace TargetVM {
         /// <summary>Assembles some the system routines & some programs into memory</summary>
         /// <param name="asmFiles"></param>
         public Assembler(params String[] asmFiles) {
-            this.memory = new ushort[ushort.MaxValue + 1]; // Allocate the memory
+            this.memory = new ushort[ushort.MaxValue + 1]; // Allocate the machine's memory
+
+            #region Assemble system routines
 #if AUTOASSEMBLE_SYSROUTINES_IO // The system routines should be pre-assembled silently
             {
                 bool savedEchoInstructions = echoAssembledInstructions; // Store the value
@@ -64,14 +72,17 @@ namespace TargetVM {
                 echoAssembledInstructions = savedEchoInstructions; // Restore the value
             }
 #endif
+            #endregion
 
             // Now assemble the files requested by the user
             assembleAll(asmFiles);
         }
 
+        /// <summary>Assembles a group of files</summary>
+        /// <param name="asmFiles">The files to assemble</param>
         private void assembleAll(String[] asmFiles) {
             foreach (String asmFile in asmFiles) {
-                if (asmFile == null) continue; // Skip null files
+                if (asmFile == null) continue; // Only process valid filenames
 
                 // Skip files that don't exist
                 if (!File.Exists(asmFile)) {
@@ -79,6 +90,7 @@ namespace TargetVM {
                     continue;
                 }
 
+                // Assemble the file, making sure to close it after us
                 try {
                     Console.WriteLine("> Assembling file " + asmFile);
                     file = new StreamReader(asmFile);
@@ -92,10 +104,17 @@ namespace TargetVM {
             }
         }
 
+        /// <summary>Reads the current file, assembling it line-by-line</summary>
         private void assemble() {
             string line = this.getNextLine();
             while (line != null) {
-                assemble(line.Replace('\t', ' ').Split('*')[0].Trim()); // Remove tabs, break on comment char
+                line = line.Replace('\t', ' '); // remove tabs
+                line = line.Split('*')[0].Trim(); // Break on comment character
+
+                // Assemble the cleaned line
+                assemble(line);
+
+                // read the next line
                 line = this.getNextLine();
             }
 
@@ -106,35 +125,36 @@ namespace TargetVM {
             return memory;
         }
 
-#if MONO
-        public string[] split(String str, char delimeter, int count)
-        {
+        #region .NET 1.1 / Mono class library workaround
+#if MONO || !DOTNET2
+        /// <summary>Hackaround a bug in the Mono class libraries</summary>
+        /// <param name="str">The string to split</param>
+        /// <param name="delimeter">The delimiting character</param>
+        /// <param name="count">The maximum array size</param>
+        /// <returns></returns>
+        public string[] split(String str, char delimeter, int count) {
             string[] arr = str.Split(new char[] { delimeter });
             ArrayList al = new ArrayList();
 
             // Now remove empty elements and ensure the maximum count
-            for (int i = 0; i < arr.Length; i++)
-            {
-                if (count != 0)
-                {
-                    if (arr[i] != null && arr[i].Length != 0)
-                    {
+            for (int i = 0; i < arr.Length; i++) {
+                if (count != 0) {
+                    if (arr[i] != null && arr[i].Length != 0) {
                         al.Add(arr[i]);
                         count--;
                     }
                 }
-                else
-                {
-                    String s = (String) al[al.Count - 1];
+                else {
+                    String s = (String)al[al.Count - 1];
                     s += delimeter + arr[i];
                     al[al.Count - 1] = s;
                 }
             }
 
-            return (String[]) al.ToArray(typeof(string));
+            return (String[])al.ToArray(typeof(string));
         }
 #endif
-
+        #endregion
 
         /// <summary>Assembles the given instruction line, writing the opcode to the right memory location</summary>
         /// <param name="instruction">The whole instruction line</param>
@@ -143,7 +163,7 @@ namespace TargetVM {
             string opcode;
             string operand;
 
-#if MONO
+#if MONO || !DOTNET2
             string[] instr = split(instruction, ' ', 3);
 #else
             string[] instr = instruction.Split(new char[] { ' ' }, 3, StringSplitOptions.RemoveEmptyEntries);
@@ -163,6 +183,11 @@ namespace TargetVM {
             memory[addr + 1] = operation[1];
         }
 
+        /// <summary>Produces an assembled instruction</summary>
+        /// <param name="addr">The start address of this instruction</param>
+        /// <param name="instruction">The opcode string</param>
+        /// <param name="operands">The operands to the opcode</param>
+        /// <returns>An assembled CpuInstruction</returns>
         public CpuInstruction assembleInstruction(ushort addr, String instruction, String operands) {
             CpuInstruction operation = new CpuInstruction();
 
@@ -186,6 +211,7 @@ namespace TargetVM {
         /// <summary>Parses the operands given to an instruction</summary>
         /// <param name="operands">The operands with NO WHITESPACE ON EITHER SIDE</param>
         /// <returns>The values for the 3 operands</returns>
+        /// <remarks>This code is <strong>really messy</strong>.</remarks>
         public ushort[] parseOperands(String operands) {
             ushort[] buffer = new ushort[] { 0, 0, 0 };
 
@@ -195,13 +221,13 @@ namespace TargetVM {
 
 
             if (char.IsDigit(operands[0]) || operands[0] == '-') {
-#if MONO
+#if MONO || !DOTNET2
                 string[] operandArray = split(operands, ',', 2);
 #else
                 string[] operandArray = operands.Split(new char[] { ',' }, 2, StringSplitOptions.RemoveEmptyEntries);
 #endif
 
-                buffer[0] = (ushort)short.Parse(operandArray[0].Trim());
+                buffer[0] = (ushort)int.Parse(operandArray[0].Trim());
 
                 // If there are further operands, set the operands
                 if (operandArray.Length > 1) {
@@ -218,8 +244,8 @@ namespace TargetVM {
                 if (operands.StartsWith("[")) // FORMAT IS [register, indirections]
                 {
                     operands = operands.Replace("[", "").Replace("]", "");
-#if MONO
-                string[] operandArray = split(operands, ',', 2);
+#if MONO || !DOTNET2
+                    string[] operandArray = split(operands, ',', 2);
 #else
                     string[] operandArray = operands.Split(new char[] { ',' }, 2, StringSplitOptions.RemoveEmptyEntries);
 #endif
@@ -229,8 +255,8 @@ namespace TargetVM {
                 }
                 else // OTHERWISE, FORMAT IS: register, operand
                 {
-#if MONO
-                string[] operandArray = split(operands, ',', 2);
+#if MONO || !DOTNET2
+                    string[] operandArray = split(operands, ',', 2);
 #else
                     string[] operandArray = operands.Split(new char[] { ',' }, 2, StringSplitOptions.RemoveEmptyEntries);
 #endif
@@ -254,6 +280,9 @@ namespace TargetVM {
             return buffer;
         }
 
+        /// <summary>Converts a string register name into a register reference number</summary>
+        /// <param name="reg">one of BP,FP,MP,SP</param>
+        /// <returns>0,1,2,3 as appropriate</returns>
         private byte parseRegister(String reg) {
             switch (reg) {
                 case "BP": return 0;
@@ -279,7 +308,6 @@ namespace TargetVM {
                 if (thisLine != null && thisLine.Length > 0 && !thisLine.StartsWith("*")) { // ignore blank and comment lines
                     // If the line starts with a digit, or whitespace and then a digit...
                     if (char.IsDigit(thisLine[0])) {
-                        // todo: technically we should/could also test for the number on the line being <= 65535
                         return thisLine.Trim();
                     }
                 }

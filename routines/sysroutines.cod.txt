@@ -1,6 +1,5 @@
 * SYSTEM ROUTINES
-* AUTHOR: Peter Wright <(...)@qub.ac.uk>
-* DESCRIPTIOn: A series of instructions specifically designed for my Target vm.
+* DESCRIPTION: A series of instructions specifically designed for my Target VM.
 *              These are NOT STANDARD INSTRUCTIONS. They will not work anywhere else
 
 *Initialise IO: Unused
@@ -25,8 +24,7 @@
 
 
 * SYSTEM ROUTINES
-* AUTHOR: Peter Wright <(...)@qub.ac.uk>
-* DESCRIPTIOn: A series of instructions specifically designed for my Target vm.
+* DESCRIPTION: A series of instructions specifically designed for my Target vm.
 *              These are NOT STANDARD INSTRUCTIONS. They will not work anywhere else
 
 *Initialise IO: Unused
